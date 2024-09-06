@@ -1,9 +1,5 @@
--- EXEC dbname..GetObjectDetails @ObjectNames = 'Users,Orders,GetOrderDetails'; -- Comma-separated list of object names BUT NO SPACE AFTER THE COMMA
-
-
 --CREATE PROCEDURE dbo.GetObjectDetails
-   declare @ObjectNames NVARCHAR(MAX) = 'users,UserStats,userpostcount' -- Comma-separated list of object names BUT NO SPACE AFTER THE COMMA
---AS
+	Declare @ObjectNames NVARCHAR(MAX) = 'users,UserStats,sp_blitz,GetUserReputation,CalculateSalesTax,GetUserName' -- Comma-separated list of object names BUT NO SPACE AFTER THE COMMA--AS
 --BEGIN
     SET NOCOUNT ON;
 
@@ -21,6 +17,7 @@
         CreatedDate DATETIME,
         ModifiedDate DATETIME,
         ObjectLocation NVARCHAR(128),
+        Definition NVARCHAR(MAX),
         Status NVARCHAR(50)
     );
 
@@ -40,7 +37,7 @@
         SET @SQL = '
         USE [' + @DBName + '];
 
-        INSERT INTO #ObjectDetails (SuppliedName, ObjectName, ObjectType, DatabaseName, SchemaName, CreatedDate, ModifiedDate, ObjectLocation, Status)
+        INSERT INTO #ObjectDetails (SuppliedName, ObjectName, ObjectType, DatabaseName, SchemaName, CreatedDate, ModifiedDate, ObjectLocation, Definition, Status)
         SELECT 
             o.name AS SuppliedName, -- Original name supplied
             o.name AS ObjectName,
@@ -56,9 +53,11 @@
                 WHEN o.type IN (''FN'', ''TF'', ''IF'') THEN ''Function''
                 ELSE ''Other''
             END AS ObjectLocation,
+            ISNULL(m.definition, ''<No Definition>'') AS Definition,
             ''Found'' AS Status
         FROM sys.objects o
         JOIN sys.schemas s ON o.schema_id = s.schema_id
+        LEFT JOIN sys.sql_modules m ON o.object_id = m.object_id
         WHERE o.name IN (
             SELECT Name.value(''.'', ''NVARCHAR(128)'') 
             FROM @XML.nodes(''/ObjectNames/Name'') AS ObjectNames(Name)
@@ -75,7 +74,7 @@
     DEALLOCATE db_cursor;
 
     -- Step: Insert any objects that were not found in the result
-    INSERT INTO #ObjectDetails (SuppliedName, ObjectName, ObjectType, DatabaseName, SchemaName, CreatedDate, ModifiedDate, ObjectLocation, Status)
+    INSERT INTO #ObjectDetails (SuppliedName, ObjectName, ObjectType, DatabaseName, SchemaName, CreatedDate, ModifiedDate, ObjectLocation, Definition, Status)
     SELECT
         Name.value('.', 'NVARCHAR(128)') AS SuppliedName,
         NULL AS ObjectName,
@@ -85,6 +84,7 @@
         NULL AS CreatedDate,
         NULL AS ModifiedDate,
         NULL AS ObjectLocation,
+        NULL AS Definition,
         'Not Found' AS Status
     FROM @XML.nodes('/ObjectNames/Name') AS ObjectNames(Name)
     WHERE Name.value('.', 'NVARCHAR(128)') NOT IN (
