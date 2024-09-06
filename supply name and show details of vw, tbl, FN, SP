@@ -1,0 +1,97 @@
+--CREATE PROCEDURE dbo.GetObjectDetails
+   declare @ObjectNames NVARCHAR(MAX) = 'users,UserStats,userpostcount' -- Comma-separated list of object names
+--AS
+--BEGIN
+    SET NOCOUNT ON;
+
+    -- Split the input string into individual object names
+    DECLARE @XML XML;
+    SET @XML = CAST('<ObjectNames><Name>' + REPLACE(@ObjectNames, ',', '</Name><Name>') + '</Name></ObjectNames>' AS XML);
+
+    -- Create a temp table to store the object details
+    CREATE TABLE #ObjectDetails (
+        SuppliedName NVARCHAR(128),
+        ObjectName NVARCHAR(128),
+        ObjectType NVARCHAR(50),
+        DatabaseName NVARCHAR(128),
+        SchemaName NVARCHAR(128),
+        CreatedDate DATETIME,
+        ModifiedDate DATETIME,
+        ObjectLocation NVARCHAR(128),
+        Status NVARCHAR(50)
+    );
+
+    -- Loop through all databases
+    DECLARE @DBName NVARCHAR(128);
+    DECLARE @SQL NVARCHAR(MAX);
+
+    DECLARE db_cursor CURSOR FOR 
+    SELECT name FROM sys.databases WHERE state_desc = 'ONLINE';  -- Only check online databases
+
+    OPEN db_cursor;
+    FETCH NEXT FROM db_cursor INTO @DBName;
+
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        -- Switch to the current database and search for the objects
+        SET @SQL = '
+        USE [' + @DBName + '];
+
+        INSERT INTO #ObjectDetails (SuppliedName, ObjectName, ObjectType, DatabaseName, SchemaName, CreatedDate, ModifiedDate, ObjectLocation, Status)
+        SELECT 
+            o.name AS SuppliedName, -- Original name supplied
+            o.name AS ObjectName,
+            o.type_desc AS ObjectType,
+            DB_NAME() AS DatabaseName,
+            s.name AS SchemaName,
+            o.create_date AS CreatedDate,
+            o.modify_date AS ModifiedDate,
+            CASE 
+                WHEN o.type IN (''U'') THEN ''Table''
+                WHEN o.type IN (''V'') THEN ''View''
+                WHEN o.type IN (''P'') THEN ''Stored Procedure''
+                WHEN o.type IN (''FN'', ''TF'', ''IF'') THEN ''Function''
+                ELSE ''Other''
+            END AS ObjectLocation,
+            ''Found'' AS Status
+        FROM sys.objects o
+        JOIN sys.schemas s ON o.schema_id = s.schema_id
+        WHERE o.name IN (
+            SELECT Name.value(''.'', ''NVARCHAR(128)'') 
+            FROM @XML.nodes(''/ObjectNames/Name'') AS ObjectNames(Name)
+        );
+        ';
+
+        -- Execute the dynamic SQL
+        EXEC sp_executesql @SQL, N'@XML XML', @XML = @XML;
+
+        FETCH NEXT FROM db_cursor INTO @DBName;
+    END;
+
+    CLOSE db_cursor;
+    DEALLOCATE db_cursor;
+
+    -- Step: Insert any objects that were not found in the result
+    INSERT INTO #ObjectDetails (SuppliedName, ObjectName, ObjectType, DatabaseName, SchemaName, CreatedDate, ModifiedDate, ObjectLocation, Status)
+    SELECT
+        Name.value('.', 'NVARCHAR(128)') AS SuppliedName,
+        NULL AS ObjectName,
+        NULL AS ObjectType,
+        NULL AS DatabaseName,
+        NULL AS SchemaName,
+        NULL AS CreatedDate,
+        NULL AS ModifiedDate,
+        NULL AS ObjectLocation,
+        'Not Found' AS Status
+    FROM @XML.nodes('/ObjectNames/Name') AS ObjectNames(Name)
+    WHERE Name.value('.', 'NVARCHAR(128)') NOT IN (
+        SELECT ObjectName FROM #ObjectDetails
+    );
+
+    -- Return the details
+    SELECT * FROM #ObjectDetails ORDER BY DatabaseName, ObjectName;
+
+    -- Clean up
+    DROP TABLE #ObjectDetails;
+--END;
+--GO
