@@ -1,5 +1,8 @@
+-- EXEC dbname..GetObjectDetails @ObjectNames = 'Users,Orders,GetOrderDetails'; -- Comma-separated list of object names BUT NO SPACE AFTER THE COMMA
+
+
 --CREATE PROCEDURE dbo.GetObjectDetails
-   declare @ObjectNames NVARCHAR(MAX) = 'users,UserStats,userpostcount' -- Comma-separated list of object names
+   declare @ObjectNames NVARCHAR(MAX) = 'users,UserStats,userpostcount' -- Comma-separated list of object names BUT NO SPACE AFTER THE COMMA
 --AS
 --BEGIN
     SET NOCOUNT ON;
